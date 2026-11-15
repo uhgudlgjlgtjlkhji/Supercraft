@@ -21,75 +21,39 @@ jobs:
           distribution: temurin
           java-version: '25'
 
-      - name: Fetch public Shine source
-        run: |
-          git clone --depth 1 https://github.com/tapeQz/Shine.git shine-src
-
-      - name: Apply initial Minecraft 26.3 build migration
-        working-directory: shine-src
+      - name: Extract the porter-generated source
         shell: bash
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          p = Path("gradle.properties")
-          s = p.read_text()
-          values = {
-              "minecraft_version": "26.3",
-              "loader_version": "0.19.5",
-              "loom_version": "1.18-SNAPSHOT",
-              "fabric_version": "0.163.0+26.3",
-              "modmenu_version": "21.0.0-beta.1",
-              "yacl_version": "3.9.6+26.3-fabric",
-          }
-          for key, value in values.items():
-              s = re.sub(rf"(?m)^{key}=.*$", f"{key}={value}", s)
-          p.write_text(s)
-
-          p = Path("build.gradle")
-          s = p.read_text()
-          s = s.replace("net.fabricmc.fabric-loom-remap", "net.fabricmc.fabric-loom")
-          s = re.sub(r"(?m)^\s*mappings loom\.officialMojangMappings\(\)\s*\n", "", s)
-          # 26.3 is no longer obfuscated, so use ordinary Gradle dependency configurations.
-          s = s.replace("modImplementation", "implementation")
-          s = s.replace("modCompileOnly", "compileOnly")
-          s = s.replace("modLocalRuntime", "runtimeOnly")
-          s = s.replace("maven.modrinth:sodium:mc1.21.11-0.8.6-fabric",
-                        "maven.modrinth:sodium:mc26.3-0.9.2-fabric")
-          s = s.replace("it.options.release = 21", "it.options.release = 25")
-          s = s.replace("JavaVersion.VERSION_21", "JavaVersion.VERSION_25")
-          p.write_text(s)
-
-          p = Path("gradle/wrapper/gradle-wrapper.properties")
-          s = p.read_text().replace("gradle-9.2.1-bin.zip", "gradle-9.7.1-bin.zip")
-          p.write_text(s)
-
-          p = Path("src/main/resources/fabric.mod.json")
-          s = p.read_text()
-          s = s.replace('">=0.18.4"', '">=0.19.5"')
-          s = s.replace('"~1.21.11"', '"~26.3"')
-          s = s.replace('">=21"', '">=25"')
-          s = s.replace('">=0.140.0+1.21.11"', '">=0.163.0+26.3"')
-          s = s.replace('">=3.8.1+1.21.11-fabric"', '">=3.9.6+26.3-fabric"')
-          p.write_text(s)
-          PY
+          test -f Shine-main-ported-26_3.zip
+          mkdir -p ported-src
+          unzip -q Shine-main-ported-26_3.zip -d ported-src
+          WRAPPER="$(find ported-src -type f -name gradlew -print -quit)"
+          if [ -z "$WRAPPER" ]; then
+            echo "No Gradle wrapper found in the uploaded porter ZIP."
+            find ported-src -maxdepth 4 -type f | head -100
+            exit 1
+          fi
+          SOURCE_DIR="$(dirname "$WRAPPER")"
+          echo "SOURCE_DIR=$SOURCE_DIR" >> "$GITHUB_ENV"
+          echo "Using source directory: $SOURCE_DIR"
+          echo "---- Gradle properties ----"
+          sed -n '1,160p' "$SOURCE_DIR/gradle.properties"
+          echo "---- Build configuration ----"
+          sed -n '1,220p' "$SOURCE_DIR/build.gradle"
 
       - name: Make Gradle wrapper executable
-        working-directory: shine-src
-        run: chmod +x ./gradlew
+        run: chmod +x "$SOURCE_DIR/gradlew"
 
-      - name: Build mod
-        working-directory: shine-src
-        run: ./gradlew build --no-daemon --stacktrace
+      - name: Build porter-generated source
+        run: cd "$SOURCE_DIR" && ./gradlew build --no-daemon --stacktrace
 
       - name: Upload build output and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: shine-26.3-build
+          name: shine-26.3-porter-build
           path: |
-            shine-src/build/libs/*.jar
-            shine-src/build/reports/
+            ported-src/**/build/libs/*.jar
+            ported-src/**/build/reports/
           if-no-files-found: warn
           retention-days: 14
