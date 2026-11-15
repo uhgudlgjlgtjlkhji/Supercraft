@@ -75,6 +75,10 @@ jobs:
           p.write_text(s)
           PY
 
+      - name: Make Gradle wrapper executable
+        working-directory: shine-src
+        run: chmod +x ./gradlew
+
       - name: Build mod
         working-directory: shine-src
         run: ./gradlew build --no-daemon --stacktrace
